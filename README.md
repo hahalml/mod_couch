@@ -15,9 +15,12 @@ backend and the switch.
 
 #### Sample document format:
 
+The first two keys are reserved CouchDB keywords and should
+be completely ignored by the module ("_id", "_rev")
+
 ```json
 {
-    "_id":"3156887333",
+    "_id":"1004",
     "_rev":"946B7D1C",
     "document" : {
         "@type": "freeswitch/xml",
@@ -52,7 +55,7 @@ backend and the switch.
     }
 }
 ```
-And thecorresponding XML generated equivallent would be:
+And the corresponding XML generated equivallent would be:
 
 ```xml
 <document type="freeswitch/xml">
@@ -81,5 +84,13 @@ Translation is based in Badgerfish convention: http://www.sklar.com/badgerfish/
 
 #### Sample binding configuration:
 
-N/A
+A sample binding URL should look like supposing you're running locally:
+
+```xml
+<binding name="example">
+    <param name="backend-url" value="http://localhost/user_auth/1004/" binding="directory"/> -->
+</binding>
+```
+
+Where 'user_auth' is the name of the document database and '1004' the "_id" unique key / identifier of the document in question.
 
