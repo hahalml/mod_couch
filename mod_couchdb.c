@@ -350,7 +350,8 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 
     /* Dump data to console for debug */
     if (dump_data_console) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Generated XML dump:\n%s\n", &config_data);
+        // review this (char *) cast
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Generated XML dump:\n%s\n", (char *) &config_data); 
 		// switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Original JSON dump:\n%s\n", &json_data);
     }
 
