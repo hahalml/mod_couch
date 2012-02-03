@@ -63,6 +63,7 @@ struct xml_binding {
 };
 
 static int keep_files_around = 0;
+static int dump_files_console = 0;
 
 typedef struct xml_binding xml_binding_t;
 
@@ -87,8 +88,9 @@ static struct {
 	hash_node_t *hash_tail;
 } globals;
 
-#define COUCHDB_SYNTAX "[file|console|both]"
-SWITCH_STANDARD_API(xml_curl_function)
+#define COUCHDB_SYNTAX "[file|console|both|none]"
+
+SWITCH_STANDARD_API(couchdb_cli_function)
 {
 	if (session) {
 		return SWITCH_STATUS_FALSE;
@@ -98,10 +100,18 @@ SWITCH_STANDARD_API(xml_curl_function)
 		goto usage;
 	}
 
-	if (!strcasecmp(cmd, "debug_on")) {
+	if (!strcasecmp(cmd, "file")) {
 		keep_files_around = 1;
-	} else if (!strcasecmp(cmd, "debug_off")) {
+        dump_files_console = 0;
+	} else if (!strcasecmp(cmd, "console")) {
 		keep_files_around = 0;
+        dump_files_console = 1;
+	} else if (!strcasecmp(cmd, "both")) {
+		keep_files_around = 1;
+        dump_files_console = 1;
+	} else if (!strcasecmp(cmd, "none")) {
+		keep_files_around = 0;
+        dump_files_console = 0;
 	} else {
 		goto usage;
 	}
@@ -135,10 +145,7 @@ static size_t file_callback(void *ptr, size_t size, size_t nmemb, void *data)
 	return x;
 }
 
-
-
-
-static switch_xml_t xml_url_fetch(const char *section, const char *tag_name, const char *key_name, const char *key_value, switch_event_t *params, void *user_data)
+static switch_xml_t fetch_translate_data(const char *section, const char *tag_name, const char *key_name, const char *key_value, switch_event_t *params, void *user_data)
 {
 	char filename[512] = "";
 	switch_CURL *curl_handle = NULL;
@@ -165,11 +172,9 @@ static switch_xml_t xml_url_fetch(const char *section, const char *tag_name, con
 		return NULL;
 	}
 
-    // amonaco: find the right way to pass variables,
-    // i guess we won't be using GET vars at all
-
-    // we might get rid of the basic data and use the
-    // bindings only
+    // amonaco: i guess i won't be using GET vars at all
+    // then might get rid of basic_data and use only
+    // the bindings 
 	switch_snprintf(basic_data, sizeof(basic_data), "hostname=%s&section=%s&tag_name=%s&key_name=%s&key_value=%s",
 					hostname, section, switch_str_nil(tag_name), switch_str_nil(key_name), switch_str_nil(key_value));
 
@@ -221,15 +226,28 @@ static switch_xml_t xml_url_fetch(const char *section, const char *tag_name, con
 			switch_curl_easy_setopt(curl_handle, CURLOPT_HTTPAUTH, binding->auth_scheme);
 			switch_curl_easy_setopt(curl_handle, CURLOPT_USERPWD, binding->cred);
 		}
+
 		switch_curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
+
 		if (binding->method != NULL)
 			switch_curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, binding->method);
+
 		switch_curl_easy_setopt(curl_handle, CURLOPT_POST, !binding->use_get_style);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_MAXREDIRS, 10);
+
 		if (!binding->use_get_style)
 			switch_curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, data);
+
 		switch_curl_easy_setopt(curl_handle, CURLOPT_URL, binding->use_get_style ? uri : dynamic_url);
+        
+        // amonaco: file_callback is passed to libcurl to write 
+        // data to file, config_data is the pointer with the data in
+        // question.
+        //
+        // at this point data is already in it's xml version,
+        // but we should have a stored version of the json data
+  
 		switch_curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, file_callback);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *) &config_data);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "freeswitch-xml/1.0");
@@ -290,7 +308,9 @@ static switch_xml_t xml_url_fetch(const char *section, const char *tag_name, con
 		switch_curl_easy_cleanup(curl_handle);
 		switch_curl_slist_free_all(headers);
 		switch_curl_slist_free_all(slist);
+
 		close(config_data.fd);
+
 	} else {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error Opening temp file!\n");
 	}
@@ -300,15 +320,24 @@ static switch_xml_t xml_url_fetch(const char *section, const char *tag_name, con
 		xml = NULL;
 	} else {
 		if (httpRes == 200) {
+
+            // amonaco: here goes our translation work
+
 			if (!(xml = switch_xml_parse_file(filename))) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error Parsing Result! [%s]\ndata: [%s]\n", binding->url, data);
 			}
+
+
 		} else {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Received HTTP error %ld trying to fetch %s\ndata: [%s]\n", httpRes, binding->url,
 							  data);
 			xml = NULL;
 		}
+       
 	}
+
+    // regardless of http response if dump_file_console == 1,
+    // dump &config_data to console
 
 	/* Debug by leaving the file behind for review */
 	if (keep_files_around) {
@@ -318,6 +347,7 @@ static switch_xml_t xml_url_fetch(const char *section, const char *tag_name, con
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "XML response file [%s] delete failed\n", filename);
 		}
 	}
+
 
 	switch_safe_free(data);
 	if (binding->use_get_style == 1)
@@ -534,7 +564,7 @@ static switch_status_t do_config(void)
 
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Binding [%s] XML Fetch Function [%s] [%s]\n",
 						  zstr(bname) ? "N/A" : bname, binding->url, binding->bindings ? binding->bindings : "all");
-		switch_xml_bind_search_function(xml_url_fetch, switch_xml_parse_section_string(binding->bindings), binding);
+		switch_xml_bind_search_function(fetch_translate_data, switch_xml_parse_section_string(binding->bindings), binding);
 		x++;
 		binding = NULL;
 	}
@@ -561,9 +591,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_couchdb_load)
 		return SWITCH_STATUS_FALSE;
 	}
 
-	SWITCH_ADD_API(xml_curl_api_interface, "xml_curl", "XML Curl", xml_curl_function, XML_CURL_SYNTAX);
-	switch_console_set_complete("add xml_curl debug_on");
-	switch_console_set_complete("add xml_curl debug_off");
+	SWITCH_ADD_API(xml_curl_api_interface, "couchdb", "CouchDB Bindings", couchdb_cli_function, COUCHDB_SYNTAX);
+
+	switch_console_set_complete("add couchdb debug_on");
+	switch_console_set_complete("add couchdb debug_off");
 
 	/* indicate that the module should continue to be loaded */
 	return SWITCH_STATUS_SUCCESS;
@@ -580,7 +611,7 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_couchdb_shutdown)
 		switch_safe_free(ptr);
 	}
 
-	switch_xml_unbind_search_function_ptr(xml_url_fetch);
+	switch_xml_unbind_search_function_ptr(fetch_translate_data);
 
 	return SWITCH_STATUS_SUCCESS;
 }
