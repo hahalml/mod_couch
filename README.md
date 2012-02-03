@@ -1,4 +1,4 @@
-Description: 
+#### Description: 
 
 The module uses libcurl in the same way mod_xml_curl does
 and connects to a given binding url where expects JSON
@@ -13,7 +13,7 @@ The motivation for hacking this module is to eliminate
 the middle software layer between the distributed database
 backend and the switch.
 
-Sample document format:
+#### Sample document format:
 
 ```json
 {
@@ -52,8 +52,6 @@ Sample document format:
     }
 }
 ```
-
-                
 And thecorresponding XML generated equivallent would be:
 
 ```xml
@@ -81,7 +79,7 @@ And thecorresponding XML generated equivallent would be:
 
 Translation is based in Badgerfish convention: http://www.sklar.com/badgerfish/
 
-Sample binding configuration:
+#### Sample binding configuration:
 
 N/A
 
