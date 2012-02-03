@@ -1,4 +1,4 @@
-<configuration name="json_curl.conf" description="cURL JSON Gateway">
+<configuration name="mod_couchdb.conf" description="CouchDB Bindings">
   <bindings>
     <binding name="example">
 
