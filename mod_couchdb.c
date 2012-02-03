@@ -63,7 +63,7 @@ struct xml_binding {
 };
 
 static int keep_files_around = 0;
-static int dump_files_console = 0;
+static int dump_data_console = 0;
 
 typedef struct xml_binding xml_binding_t;
 
@@ -102,16 +102,16 @@ SWITCH_STANDARD_API(couchdb_cli_function)
 
 	if (!strcasecmp(cmd, "file")) {
 		keep_files_around = 1;
-        dump_files_console = 0;
+        dump_data_console = 0;
 	} else if (!strcasecmp(cmd, "console")) {
 		keep_files_around = 0;
-        dump_files_console = 1;
+        dump_data_console = 1;
 	} else if (!strcasecmp(cmd, "both")) {
 		keep_files_around = 1;
-        dump_files_console = 1;
+        dump_data_console = 1;
 	} else if (!strcasecmp(cmd, "none")) {
 		keep_files_around = 0;
-        dump_files_console = 0;
+        dump_data_console = 0;
 	} else {
 		goto usage;
 	}
@@ -336,15 +336,18 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
        
 	}
 
-    // regardless of http response if dump_file_console == 1,
-    // dump &config_data to console
+    /* Dump data to console for debug */
+    if (dump_data_console) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Generated XML dump:\n%s\n", &config_data);
+		// switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Original JSON dump:\n%s\n", &json_data);
+    }
 
 	/* Debug by leaving the file behind for review */
 	if (keep_files_around) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "XML response is in %s\n", filename);
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Genarated XML is in %s\n", filename);
 	} else {
 		if (unlink(filename) != 0) {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "XML response file [%s] delete failed\n", filename);
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Generated response file [%s] delete failed\n", filename);
 		}
 	}
 
