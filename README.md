@@ -88,7 +88,7 @@ A sample binding URL should look like supposing you're running locally:
 
 ```xml
 <binding name="example">
-    <param name="backend-url" value="http://localhost/user_auth/1004/" binding="directory"/> -->
+    <param name="backend-url" value="http://localhost/user_auth/1004/" binding="directory"/>
 </binding>
 ```
 
