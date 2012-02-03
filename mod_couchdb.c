@@ -247,8 +247,12 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
         //
         // at this point data is already in it's xml version,
         // but we should have a stored version of the json data
+        
+
   
 		switch_curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, file_callback);
+
+
 		switch_curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *) &config_data);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "freeswitch-xml/1.0");
 
@@ -303,9 +307,15 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 			curl_easy_setopt(curl_handle, CURLOPT_INTERFACE, binding->bind_local);
 		}
 
+        // amonaco: at this point &config_data is still empty
+
 		switch_curl_easy_perform(curl_handle);
 		switch_curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &httpRes);
 		switch_curl_easy_cleanup(curl_handle);
+
+        // amonaco: at this point &config_data has json data,
+        // file has been written w/ json data
+
 		switch_curl_slist_free_all(headers);
 		switch_curl_slist_free_all(slist);
 
@@ -321,16 +331,18 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 	} else {
 		if (httpRes == 200) {
 
-            // amonaco: here goes our translation work
-
+            // amonaco: write a wrapper function around
+            // switch_xml_parse_file that translates json
+            // to the magical xml like:
+            // switch_xml_parse_data(translate_json_file(filename))
+            // to avoid opening another fd for another tmp file
+   
 			if (!(xml = switch_xml_parse_file(filename))) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error Parsing Result! [%s]\ndata: [%s]\n", binding->url, data);
 			}
 
-
 		} else {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Received HTTP error %ld trying to fetch %s\ndata: [%s]\n", httpRes, binding->url,
-							  data);
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Received HTTP error %ld trying to fetch %s\ndata: [%s]\n", httpRes, binding->url, data);
 			xml = NULL;
 		}
        
@@ -351,8 +363,8 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 		}
 	}
 
-
 	switch_safe_free(data);
+
 	if (binding->use_get_style == 1)
 		switch_safe_free(uri);
 	if (binding->use_dynamic_url && dynamic_url != binding->url)
