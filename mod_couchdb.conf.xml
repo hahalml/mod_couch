@@ -14,7 +14,7 @@
       <param name="backend-db" value="user_auth"/>
 
       <!-- Variable name used as couchdb document index (i.e sip_auth_username) -->
-      <param name="doc-index" value="sip_auth_username"/>
+      <param name="doc-index-var" value="sip_auth_username"/>
 
       <!-- NOTE: Even when CouchDB doesn't support SSL, you can have either
            apache or nginx set up as a proxy and providing authentication -->

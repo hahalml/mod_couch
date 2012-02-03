@@ -21,17 +21,15 @@
  * Portions created by the Initial Developer are Copyright (C)
  * the Initial Developer. All Rights Reserved.
  *
- * Based on CURL XML Gateway. Original Contributors:
+ * Based on mod_curl_xml. Original Contributors:
  * 
  * Anthony Minessale II <anthm@freeswitch.org>
  * Bret McDanel <trixter AT 0xdecafbad.com>
  * Justin Cassidy <xachenant@hotmail.com>
  *
- * Contributor:
- *
  * Ariel Monaco <amonaco@gmail.com>
  *
- * mod_couchdb.c -- Couchdb bindings for FreeSWITCH
+ * mod_couchdb.c -- Experimental Couchdb Binding for FreeSWITCH
  */
 #include <switch.h>
 #include <switch_curl.h>
@@ -41,8 +39,8 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_couchdb_shutdown);
 SWITCH_MODULE_DEFINITION(mod_couchdb, mod_couchdb_load, mod_couchdb_shutdown, NULL);
 
 struct xml_binding {
-	char *method;
 	char *url;
+	char *doc;
 	char *bindings;
 	char *cred;
 	char *bind_local;
@@ -53,9 +51,6 @@ struct xml_binding {
 	char *ssl_version;
 	char *ssl_cacert_file;
 	uint32_t enable_ssl_verifyhost;
-	char *cookie_file;
-	switch_hash_t *vars_map;
-	int use_dynamic_url;
 	int auth_scheme;
 	int timeout;
 };
@@ -159,9 +154,7 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 	switch_curl_slist_t *slist = NULL;
 	long httpRes = 0;
 	char hostname[256] = "";
-	char basic_data[512];
 	char *uri = NULL;
-	char *dynamic_url = NULL;
 
     strncpy(hostname, switch_core_get_switchname(), sizeof(hostname));
 
@@ -169,13 +162,10 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 		return NULL;
 	}
 
-    // amonaco: review
-    dynamic_url = binding->url;
-
     /* This module always uses GET */
-    uri = malloc(strlen(data) + strlen(doc_index) + 2);
+    uri = malloc(strlen(binding->url) + strlen(binding->doc) + 2);
     switch_assert(uri);
-    sprintf(uri, "/%s/%s", binding->url, binding->doc_index);
+    sprintf(uri, "/%s/%s", binding->url, binding->doc);
 
 
 	switch_uuid_get(&uuid);
@@ -200,17 +190,11 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 			switch_curl_easy_setopt(curl_handle, CURLOPT_USERPWD, binding->cred);
 		}
 
-		if (binding->method != NULL)
-			switch_curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, binding->method);
-
+        /* Set CURL options */
 		switch_curl_easy_setopt(curl_handle, CURLOPT_POST, 0);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_MAXREDIRS, 10);
-
-		if (!binding->use_get_style)
-			switch_curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, data);
-
-		switch_curl_easy_setopt(curl_handle, CURLOPT_URL, binding->use_get_style ? uri : dynamic_url);
+		switch_curl_easy_setopt(curl_handle, CURLOPT_URL, uri);
         
         // amonaco: file_callback is passed to libcurl to write 
         // data to file, config_data is the pointer with the data in
@@ -218,11 +202,8 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
         //
         // at this point data is already in it's xml version,
         // but we should have a stored version of the json data
-        
-
   
 		switch_curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, file_callback);
-
 
 		switch_curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *) &config_data);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "freeswitch-xml/1.0");
@@ -262,11 +243,6 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 
 		if (binding->enable_ssl_verifyhost) {
 			switch_curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYHOST, 2);
-		}
-
-		if (binding->cookie_file) {
-			switch_curl_easy_setopt(curl_handle, CURLOPT_COOKIEJAR, binding->cookie_file);
-			switch_curl_easy_setopt(curl_handle, CURLOPT_COOKIEFILE, binding->cookie_file);
 		}
 
 		if (binding->bind_local) {
@@ -327,11 +303,8 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 	}
 
 	switch_safe_free(data);
-
     switch_safe_free(uri);
 
-	if (binding->use_dynamic_url && dynamic_url != binding->url)
-		switch_safe_free(dynamic_url);
 	return xml;
 }
 
@@ -339,11 +312,10 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 static switch_status_t do_config(void)
 {
 	char *cf = "couchdb_curl.conf";
+    switch_channel_t *channel = NULL;
 	switch_xml_t cfg, xml, bindings_tag, binding_tag, param;
 	xml_binding_t *binding = NULL;
 	int x = 0;
-	int need_vars_map = 0;
-	switch_hash_t *vars_map = NULL;
 
 	if (!(xml = switch_xml_open_cfg(cf, &cfg, NULL))) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "open of %s failed\n", cf);
@@ -362,8 +334,7 @@ static switch_status_t do_config(void)
 		char *bind_local = NULL;
 		char *bind_cred = NULL;
 		char *bind_mask = NULL;
-		char *method = NULL;
-		int use_dynamic_url = 0, timeout = 0;
+		int timeout = 0;
 		uint32_t enable_cacert_check = 0;
 		char *ssl_cert_file = NULL;
 		char *ssl_key_file = NULL;
@@ -371,11 +342,8 @@ static switch_status_t do_config(void)
 		char *ssl_version = NULL;
 		char *ssl_cacert_file = NULL;
 		uint32_t enable_ssl_verifyhost = 0;
-		hash_node_t *hash_node;
+		// hash_node_t *hash_node;
 		int auth_scheme = CURLAUTH_BASIC;
-		need_vars_map = 0;
-		vars_map = NULL;
-
 
 		for (param = switch_xml_child(binding_tag, "param"); param; param = param->next) {
 			char *var = (char *) switch_xml_attr_soft(param, "name");
@@ -386,7 +354,7 @@ static switch_status_t do_config(void)
 				if (val) {
 					url = val;
 				}
-			} else if (!strcasecmp(var, "doc-index")) {
+			} else if (!strcasecmp(var, "doc-index-var")) {
 				doc = val;
 			} else if (!strcasecmp(var, "gateway-credentials")) {
 				bind_cred = val;
@@ -429,8 +397,6 @@ static switch_status_t do_config(void)
 				ssl_cacert_file = val;
 			} else if (!strcasecmp(var, "enable-ssl-verifyhost") && switch_true(val)) {
 				enable_ssl_verifyhost = 1;
-			} else if (!strcasecmp(var, "use-dynamic-url") && switch_true(val)) {
-				use_dynamic_url = 1;
 			} else if (!strcasecmp(var, "bind-local")) {
 				bind_local = val;
 			}
@@ -438,14 +404,14 @@ static switch_status_t do_config(void)
 
 		if (!url) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Binding has no url!\n");
-			if (vars_map)
-				switch_core_hash_destroy(&vars_map);
+            // amonaco: remember to cleanup
+			// if (vars_map)
+		    //		switch_core_hash_destroy(&vars_map);
 			continue;
 		}
 
 		if (!(binding = malloc(sizeof(*binding)))) {
-			if (vars_map)
-				switch_core_hash_destroy(&vars_map);
+	        /* No more bindings */	
 			goto done;
 		}
 		memset(binding, 0, sizeof(*binding));
@@ -453,6 +419,7 @@ static switch_status_t do_config(void)
 		binding->auth_scheme = auth_scheme;
 		binding->timeout = timeout;
 		binding->url = strdup(url);
+		binding->doc = strdup(doc);
 		switch_assert(binding->url);
 
 		if (bind_local != NULL) {
@@ -467,7 +434,6 @@ static switch_status_t do_config(void)
 			binding->cred = strdup(bind_cred);
 		}
 
-		binding->use_dynamic_url = use_dynamic_url;
 		binding->enable_cacert_check = enable_cacert_check;
 
 		if (ssl_cert_file) {
@@ -492,27 +458,21 @@ static switch_status_t do_config(void)
 
 		binding->enable_ssl_verifyhost = enable_ssl_verifyhost;
 
-		binding->vars_map = vars_map;
+        // amonaco: check mandatory field doc-index-var above
+        // and map / dup variable for building the url
+        //
 
-		if (vars_map) {
-			switch_zmalloc(hash_node, sizeof(hash_node_t));
-			hash_node->hash = vars_map;
-			hash_node->next = NULL;
+        if (session) 
+            channel = switch_core_session_get_channel(session);
+        doc = switch_channel_get_variable(channel, "sip_auth_username");
 
-			if (!globals.hash_root) {
-				globals.hash_root = hash_node;
-				globals.hash_tail = globals.hash_root;
-			}
+        if (!zstr(doc)) {
+            // error
+        }
 
-			else {
-				globals.hash_tail->next = hash_node;
-				globals.hash_tail = globals.hash_tail->next;
-			}
-
-		}
-
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Binding [%s] XML Fetch Function [%s] [%s]\n",
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Binding [%s] CouchDB Backend [%s] [%s]\n",
 						  zstr(bname) ? "N/A" : bname, binding->url, binding->bindings ? binding->bindings : "all");
+
 		switch_xml_bind_search_function(fetch_translate_data, switch_xml_parse_section_string(binding->bindings), binding);
 		x++;
 		binding = NULL;
@@ -542,8 +502,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_couchdb_load)
 
 	SWITCH_ADD_API(xml_curl_api_interface, "couchdb", "CouchDB Bindings", couchdb_cli_function, COUCHDB_SYNTAX);
 
-	switch_console_set_complete("add couchdb debug_on");
-	switch_console_set_complete("add couchdb debug_off");
+	switch_console_set_complete("add couchdb file");
+	switch_console_set_complete("add couchdb console");
+	switch_console_set_complete("add couchdb both");
+	switch_console_set_complete("add couchdb none");
 
 	/* indicate that the module should continue to be loaded */
 	return SWITCH_STATUS_SUCCESS;
