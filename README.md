@@ -84,7 +84,7 @@ Translation is based in Badgerfish convention: http://www.sklar.com/badgerfish/
 
 #### Sample binding configuration:
 
-A sample binding URL should look like supposing you're running locally:
+A sample binding should look like supposing you're running locally:
 
 ```xml
 <binding name="example">
