@@ -46,8 +46,6 @@ struct xml_binding {
 	char *bindings;
 	char *cred;
 	char *bind_local;
-	int disable100continue;
-	int use_get_style;
 	uint32_t enable_cacert_check;
 	char *ssl_cert_file;
 	char *ssl_key_file;
@@ -160,7 +158,6 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 
 	switch_curl_slist_t *slist = NULL;
 	long httpRes = 0;
-	switch_curl_slist_t *headers = NULL;
 	char hostname[256] = "";
 	char basic_data[512];
 	char *uri = NULL;
@@ -172,44 +169,20 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 		return NULL;
 	}
 
-    // amonaco: i guess i won't be using GET vars at all
-    // then might get rid of basic_data and use only
-    // the bindings 
-	switch_snprintf(basic_data, sizeof(basic_data), "hostname=%s&section=%s&tag_name=%s&key_name=%s&key_value=%s",
-					hostname, section, switch_str_nil(tag_name), switch_str_nil(key_name), switch_str_nil(key_value));
+    // amonaco: review
+    dynamic_url = binding->url;
 
-	data = switch_event_build_param_string(params, basic_data, binding->vars_map);
-	switch_assert(data);
+    /* This module always uses GET */
+    uri = malloc(strlen(data) + strlen(doc_index) + 2);
+    switch_assert(uri);
+    sprintf(uri, "/%s/%s", binding->url, binding->doc_index);
 
-	if (binding->use_dynamic_url) {
-		if (!params) {
-			switch_event_create(&params, SWITCH_EVENT_REQUEST_PARAMS);
-			switch_assert(params);
-		}
-
-		switch_event_add_header_string(params, SWITCH_STACK_TOP, "hostname", hostname);
-		switch_event_add_header_string(params, SWITCH_STACK_TOP, "section", switch_str_nil(section));
-		switch_event_add_header_string(params, SWITCH_STACK_TOP, "tag_name", switch_str_nil(tag_name));
-		switch_event_add_header_string(params, SWITCH_STACK_TOP, "key_name", switch_str_nil(key_name));
-		switch_event_add_header_string(params, SWITCH_STACK_TOP, "key_value", switch_str_nil(key_value));
-		dynamic_url = switch_event_expand_headers(params, binding->url);
-		switch_assert(dynamic_url);
-	} else {
-		dynamic_url = binding->url;
-	}
-
-	if (binding->use_get_style == 1) {
-		uri = malloc(strlen(data) + strlen(dynamic_url) + 16);
-		switch_assert(uri);
-		sprintf(uri, "%s%c%s", dynamic_url, strchr(dynamic_url, '?') != NULL ? '&' : '?', data);
-	}
 
 	switch_uuid_get(&uuid);
 	switch_uuid_format(uuid_str, &uuid);
 
-	switch_snprintf(filename, sizeof(filename), "%s%s.tmp.xml", SWITCH_GLOBAL_dirs.temp_dir, uuid_str);
+	switch_snprintf(filename, sizeof(filename), "%s%s.tmp.json", SWITCH_GLOBAL_dirs.temp_dir, uuid_str);
 	curl_handle = switch_curl_easy_init();
-	headers = switch_curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
 
 	if (!strncasecmp(binding->url, "https", 5)) {
 		switch_curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0);
@@ -227,12 +200,10 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 			switch_curl_easy_setopt(curl_handle, CURLOPT_USERPWD, binding->cred);
 		}
 
-		switch_curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
-
 		if (binding->method != NULL)
 			switch_curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, binding->method);
 
-		switch_curl_easy_setopt(curl_handle, CURLOPT_POST, !binding->use_get_style);
+		switch_curl_easy_setopt(curl_handle, CURLOPT_POST, 0);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_MAXREDIRS, 10);
 
@@ -259,11 +230,6 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 		if (binding->timeout) {
 			switch_curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT, binding->timeout);
 			switch_curl_easy_setopt(curl_handle, CURLOPT_NOSIGNAL, 1);
-		}
-
-		if (binding->disable100continue) {
-			slist = switch_curl_slist_append(slist, "Expect:");
-			switch_curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, slist);
 		}
 
 		if (binding->enable_cacert_check) {
@@ -307,7 +273,7 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 			curl_easy_setopt(curl_handle, CURLOPT_INTERFACE, binding->bind_local);
 		}
 
-        // amonaco: at this point &config_data is still empty
+        // amonaco: at this point &config_data should still be empty
 
 		switch_curl_easy_perform(curl_handle);
 		switch_curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &httpRes);
@@ -316,9 +282,7 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
         // amonaco: at this point &config_data has json data,
         // file has been written w/ json data
 
-		switch_curl_slist_free_all(headers);
 		switch_curl_slist_free_all(slist);
-
 		close(config_data.fd);
 
 	} else {
@@ -332,10 +296,9 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 		if (httpRes == 200) {
 
             // amonaco: write a wrapper function around
-            // switch_xml_parse_file that translates json
-            // to the magical xml like:
-            // switch_xml_parse_data(translate_json_file(filename))
-            // to avoid opening another fd for another tmp file
+            // !switch_xml_parse_str()! that translates json
+            // to xml (thus avoiding opening another fd):
+            // switch_xml_parse_str(translate_json_file(filename))
    
 			if (!(xml = switch_xml_parse_file(filename))) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error Parsing Result! [%s]\ndata: [%s]\n", binding->url, data);
@@ -345,7 +308,6 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Received HTTP error %ld trying to fetch %s\ndata: [%s]\n", httpRes, binding->url, data);
 			xml = NULL;
 		}
-       
 	}
 
     /* Dump data to console for debug */
@@ -366,8 +328,8 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 
 	switch_safe_free(data);
 
-	if (binding->use_get_style == 1)
-		switch_safe_free(uri);
+    switch_safe_free(uri);
+
 	if (binding->use_dynamic_url && dynamic_url != binding->url)
 		switch_safe_free(dynamic_url);
 	return xml;
@@ -396,11 +358,11 @@ static switch_status_t do_config(void)
 	for (binding_tag = switch_xml_child(bindings_tag, "binding"); binding_tag; binding_tag = binding_tag->next) {
 		char *bname = (char *) switch_xml_attr_soft(binding_tag, "name");
 		char *url = NULL;
+		char *doc = NULL;
 		char *bind_local = NULL;
 		char *bind_cred = NULL;
 		char *bind_mask = NULL;
 		char *method = NULL;
-		int disable100continue = 1;
 		int use_dynamic_url = 0, timeout = 0;
 		uint32_t enable_cacert_check = 0;
 		char *ssl_cert_file = NULL;
@@ -409,7 +371,6 @@ static switch_status_t do_config(void)
 		char *ssl_version = NULL;
 		char *ssl_cacert_file = NULL;
 		uint32_t enable_ssl_verifyhost = 0;
-		char *cookie_file = NULL;
 		hash_node_t *hash_node;
 		int auth_scheme = CURLAUTH_BASIC;
 		need_vars_map = 0;
@@ -420,11 +381,13 @@ static switch_status_t do_config(void)
 			char *var = (char *) switch_xml_attr_soft(param, "name");
 			char *val = (char *) switch_xml_attr_soft(param, "value");
 
-			if (!strcasecmp(var, "gateway-url")) {
-				bind_mask = (char *) switch_xml_attr_soft(param, "bindings");
+			if (!strcasecmp(var, "backend-url")) {
+				bind_mask = (char *) switch_xml_attr_soft(param, "binding");
 				if (val) {
 					url = val;
 				}
+			} else if (!strcasecmp(var, "doc-index")) {
+				doc = val;
 			} else if (!strcasecmp(var, "gateway-credentials")) {
 				bind_cred = val;
 			} else if (!strcasecmp(var, "auth-scheme")) {
@@ -444,10 +407,7 @@ static switch_status_t do_config(void)
 				} else if (!strcasecmp(val, "any")) {
 					auth_scheme = CURLAUTH_ANY;
 				}
-			} else if (!strcasecmp(var, "disable-100-continue") && !switch_true(val)) {
-				disable100continue = 0;
-			} else if (!strcasecmp(var, "method")) {
-				method = val;
+	
 			} else if (!strcasecmp(var, "timeout")) {
 				int tmp = atoi(val);
 				if (tmp >= 0) {
@@ -469,25 +429,8 @@ static switch_status_t do_config(void)
 				ssl_cacert_file = val;
 			} else if (!strcasecmp(var, "enable-ssl-verifyhost") && switch_true(val)) {
 				enable_ssl_verifyhost = 1;
-			} else if (!strcasecmp(var, "cookie-file")) {
-				cookie_file = val;
 			} else if (!strcasecmp(var, "use-dynamic-url") && switch_true(val)) {
 				use_dynamic_url = 1;
-			} else if (!strcasecmp(var, "enable-post-var")) {
-				if (!vars_map && need_vars_map == 0) {
-					if (switch_core_hash_init(&vars_map, globals.pool) != SWITCH_STATUS_SUCCESS) {
-						need_vars_map = -1;
-						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Can't init params hash!\n");
-						continue;
-					}
-					need_vars_map = 1;
-				}
-
-				if (vars_map && val) {
-					if (switch_core_hash_insert(vars_map, val, ENABLE_PARAM_VALUE) != SWITCH_STATUS_SUCCESS) {
-						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Can't add %s to params hash!\n", val);
-					}
-				}
 			} else if (!strcasecmp(var, "bind-local")) {
 				bind_local = val;
 			}
@@ -515,11 +458,7 @@ static switch_status_t do_config(void)
 		if (bind_local != NULL) {
 			binding->bind_local = strdup(bind_local);
 		}
-		if (method != NULL) {
-			binding->method = strdup(method);
-		} else {
-			binding->method = NULL;
-		}
+
 		if (bind_mask) {
 			binding->bindings = strdup(bind_mask);
 		}
@@ -528,8 +467,6 @@ static switch_status_t do_config(void)
 			binding->cred = strdup(bind_cred);
 		}
 
-		binding->disable100continue = disable100continue;
-		binding->use_get_style = method != NULL && strcasecmp(method, "post") != 0;
 		binding->use_dynamic_url = use_dynamic_url;
 		binding->enable_cacert_check = enable_cacert_check;
 
@@ -554,10 +491,6 @@ static switch_status_t do_config(void)
 		}
 
 		binding->enable_ssl_verifyhost = enable_ssl_verifyhost;
-
-		if (cookie_file) {
-			binding->cookie_file = strdup(cookie_file);
-		}
 
 		binding->vars_map = vars_map;
 
