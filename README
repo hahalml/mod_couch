@@ -1,0 +1,18 @@
+Description: 
+
+The module uses libcurl in the same way mod_xml_curl does
+and connects to a given binding url where expects JSON
+documents. Only URL formation and the specific parameters
+passed to the backend make the module couchdb specific.
+
+The module simply translates cURL-fetched JSON documents
+to XML for internal switch parsing magic and could eventually
+be turned into a generig cURL JSON module.
+
+The motivation for hacking this module is to eliminate
+the middle software layer between the distributed database
+backend and the switch.
+
+Sample binding configuration:
+
+Sample document format:
