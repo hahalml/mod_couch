@@ -165,7 +165,7 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
     /* This module always uses GET */
     uri = malloc(strlen(binding->url) + strlen(binding->doc) + 2);
     switch_assert(uri);
-    sprintf(uri, "/%s/%s", binding->url, binding->doc);
+    sprintf(uri, "%s/%s", binding->url, binding->doc);
 
 
 	switch_uuid_get(&uuid);
@@ -191,10 +191,12 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 		}
 
         /* Set CURL options */
-		switch_curl_easy_setopt(curl_handle, CURLOPT_POST, 0);
-		switch_curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1);
-		switch_curl_easy_setopt(curl_handle, CURLOPT_MAXREDIRS, 10);
+		// switch_curl_easy_setopt(curl_handle, CURLOPT_POST, 0);
+		// switch_curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1);
+		// switch_curl_easy_setopt(curl_handle, CURLOPT_MAXREDIRS, 10);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_URL, uri);
+
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "URI is [%s]\n", uri);
         
         // amonaco: file_callback is passed to libcurl to write 
         // data to file, config_data is the pointer with the data in
@@ -275,6 +277,9 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
             // !switch_xml_parse_str()! that translates json
             // to xml (thus avoiding opening another fd):
             // switch_xml_parse_str(translate_json_file(filename))
+            //
+            // use cJSON_Parse(const char *value)
+            //
    
 			if (!(xml = switch_xml_parse_file(filename))) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error Parsing Result! [%s]\ndata: [%s]\n", binding->url, data);
@@ -312,7 +317,7 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 static switch_status_t do_config(void)
 {
 	char *cf = "couchdb_curl.conf";
-    switch_channel_t *channel = NULL;
+    // switch_channel_t *channel = NULL;
 	switch_xml_t cfg, xml, bindings_tag, binding_tag, param;
 	xml_binding_t *binding = NULL;
 	int x = 0;
@@ -462,6 +467,7 @@ static switch_status_t do_config(void)
         // and map / dup variable for building the url
         //
 
+        /* 
         if (session) 
             channel = switch_core_session_get_channel(session);
         doc = switch_channel_get_variable(channel, "sip_auth_username");
@@ -469,6 +475,7 @@ static switch_status_t do_config(void)
         if (!zstr(doc)) {
             // error
         }
+        */
 
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Binding [%s] CouchDB Backend [%s] [%s]\n",
 						  zstr(bname) ? "N/A" : bname, binding->url, binding->bindings ? binding->bindings : "all");
