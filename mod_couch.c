@@ -29,14 +29,14 @@
  *
  * Ariel Monaco <amonaco@gmail.com>
  *
- * mod_couchdb.c -- Experimental Couchdb Binding for FreeSWITCH
+ * mod_couch.c -- Experimental Couchdb Binding for FreeSWITCH
  */
 #include <switch.h>
 #include <switch_curl.h>
 
-SWITCH_MODULE_LOAD_FUNCTION(mod_couchdb_load);
-SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_couchdb_shutdown);
-SWITCH_MODULE_DEFINITION(mod_couchdb, mod_couchdb_load, mod_couchdb_shutdown, NULL);
+SWITCH_MODULE_LOAD_FUNCTION(mod_couch_load);
+SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_couch_shutdown);
+SWITCH_MODULE_DEFINITION(mod_couch, mod_couch_load, mod_couch_shutdown, NULL);
 
 struct xml_binding {
 	char *url;
@@ -81,9 +81,9 @@ static struct {
 	hash_node_t *hash_tail;
 } globals;
 
-#define COUCHDB_SYNTAX "[file|console|both|none]"
+#define COUCH_SYNTAX "[file|console|both|none]"
 
-SWITCH_STANDARD_API(couchdb_cli_function)
+SWITCH_STANDARD_API(couch_cli_function)
 {
 	if (session) {
 		return SWITCH_STATUS_FALSE;
@@ -113,7 +113,7 @@ SWITCH_STANDARD_API(couchdb_cli_function)
 	return SWITCH_STATUS_SUCCESS;
 
   usage:
-	stream->write_function(stream, "USAGE: %s\n", COUCHDB_SYNTAX);
+	stream->write_function(stream, "USAGE: %s\n", COUCH_SYNTAX);
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -316,8 +316,10 @@ static switch_xml_t fetch_translate_data(const char *section, const char *tag_na
 #define ENABLE_PARAM_VALUE "enabled"
 static switch_status_t do_config(void)
 {
-	char *cf = "couchdb_curl.conf";
+	char *cf = "mod_couch.conf";
+
     // switch_channel_t *channel = NULL;
+
 	switch_xml_t cfg, xml, bindings_tag, binding_tag, param;
 	xml_binding_t *binding = NULL;
 	int x = 0;
@@ -477,7 +479,7 @@ static switch_status_t do_config(void)
         }
         */
 
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Binding [%s] CouchDB Backend [%s] [%s]\n",
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Binding [%s] Couch Backend [%s] [%s]\n",
 						  zstr(bname) ? "N/A" : bname, binding->url, binding->bindings ? binding->bindings : "all");
 
 		switch_xml_bind_search_function(fetch_translate_data, switch_xml_parse_section_string(binding->bindings), binding);
@@ -491,7 +493,7 @@ static switch_status_t do_config(void)
 	return x ? SWITCH_STATUS_SUCCESS : SWITCH_STATUS_FALSE;
 }
 
-SWITCH_MODULE_LOAD_FUNCTION(mod_couchdb_load)
+SWITCH_MODULE_LOAD_FUNCTION(mod_couch_load)
 {
 	switch_api_interface_t *xml_curl_api_interface;
 
@@ -507,18 +509,18 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_couchdb_load)
 		return SWITCH_STATUS_FALSE;
 	}
 
-	SWITCH_ADD_API(xml_curl_api_interface, "couchdb", "CouchDB Bindings", couchdb_cli_function, COUCHDB_SYNTAX);
+	SWITCH_ADD_API(xml_curl_api_interface, "couch", "Couch Bindings", couch_cli_function, COUCH_SYNTAX);
 
-	switch_console_set_complete("add couchdb file");
-	switch_console_set_complete("add couchdb console");
-	switch_console_set_complete("add couchdb both");
-	switch_console_set_complete("add couchdb none");
+	switch_console_set_complete("add couch file");
+	switch_console_set_complete("add couch console");
+	switch_console_set_complete("add couch both");
+	switch_console_set_complete("add couch none");
 
 	/* indicate that the module should continue to be loaded */
 	return SWITCH_STATUS_SUCCESS;
 }
 
-SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_couchdb_shutdown)
+SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_couch_shutdown)
 {
 	hash_node_t *ptr = NULL;
 
